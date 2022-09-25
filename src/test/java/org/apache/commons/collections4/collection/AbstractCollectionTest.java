@@ -39,6 +39,7 @@ import java.util.Objects;
 import java.util.function.Predicate;
 
 import org.apache.commons.collections4.AbstractObjectTest;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -70,9 +71,9 @@ import org.junit.jupiter.api.Test;
  * <li>{@link #isFailFastSupported()}
  * </ul>
  * <p>
- * <b>Indicate Collection Iteration behaviour</b>
+ * <b>Indicate Collection Behaviour</b>
  * <p>
- * Override these if your collection makes no ordering guarantees for the iterator
+ * Override these if your collection makes specific behaviour guarantees:
  * <ul>
  * <li>{@link #getIterationBehaviour()}</li>
  * </ul>
@@ -141,14 +142,15 @@ public abstract class AbstractCollectionTest<E> extends AbstractObjectTest {
     // tests on Collection.equals nor any for Collection.hashCode.
     //
 
-    // These fields are used by reset() and verify(), and any test
-    // method that tests a modification.
     /**
      * Flag to indicate the collection makes no ordering guarantees for the iterator. If this is not used
      * then the behaviour is assumed to be ordered and the output order of the iterator is matched by
      * the toArray method.
      */
     protected static final int UNORDERED = 0x1;
+
+    // These fields are used by reset() and verify(), and any test
+    // method that tests a modification.
 
     /**
      *  A collection instance that will be used for testing.
@@ -503,8 +505,10 @@ public abstract class AbstractCollectionTest<E> extends AbstractObjectTest {
     /**
      * Return a flag specifying the iteration behaviour of the collection.
      * This is used to change the assertions used by specific tests.
-     * Default implementation returns 0 as iteration behaviour which indicates ordered iteration
+     * The default implementation returns 0 which indicates ordered iteration behaviour.
+     *
      * @return the iteration behaviour
+     * @see #UNORDERED
      */
     protected int getIterationBehaviour(){
         return 0;
@@ -1120,12 +1124,9 @@ public abstract class AbstractCollectionTest<E> extends AbstractObjectTest {
         a = getCollection().toArray();
 
         if ((getIterationBehaviour() & UNORDERED) != 0) {
-            assertTrue("toArrays should contain the same elements",
-                       array.length == a.length &&
-                                (new HashSet<>(Arrays.asList(array)).equals(new HashSet<>(Arrays.asList(a)))));
+            assertUnorderedArrayEquals(array, a, "toArray(Object[]) and toArray()");
         } else {
-            assertEquals("toArrays should be equal",
-                                Arrays.asList(array), Arrays.asList(a));
+            assertEquals("toArrays should be equal", Arrays.asList(array), Arrays.asList(a));
         }
         // Figure out if they're all the same class
         // TODO: It'd be nicer to detect a common superclass
@@ -1147,15 +1148,46 @@ public abstract class AbstractCollectionTest<E> extends AbstractObjectTest {
                 a.getClass(), array.getClass());
 
         if ((getIterationBehaviour() & UNORDERED) != 0) {
-            assertTrue("type-specific toArrays should contain the same elements",
-                        getCollection().toArray().length == array.length &&
-                        (new HashSet<>(Arrays.asList(array))).equals(new HashSet<>(Arrays.asList(getCollection().toArray()))));
+            assertUnorderedArrayEquals(array, getCollection().toArray(), "type-specific toArray(T[]) and toArray()");
         } else {
             assertEquals("type-specific toArrays should be equal",
                     Arrays.asList(array),
                     Arrays.asList(getCollection().toArray()));
         }
         verify();
+    }
+
+    /**
+     * Assert the arrays contain the same elements, ignoring the order.
+     *
+     * <p>Note this does not test the arrays are deeply equal. Array elements are compared
+     * using {@link Object#equals(Object)}.
+     *
+     * @param a1 First array
+     * @param a2 Second array
+     * @param msg Failure message prefix
+     */
+    private static void assertUnorderedArrayEquals(Object[] a1, Object[] a2, String msg) {
+        Assertions.assertEquals(a1.length, a2.length, () -> msg + ": length");
+        final int size = a1.length;
+        // Track values that have been matched once (and only once)
+        final boolean[] matched = new boolean[size];
+        NEXT_OBJECT:
+        for (final Object o : a1) {
+            for (int i = 0; i < size; i++) {
+                if (matched[i]) {
+                    // skip values already matched
+                    continue;
+                }
+                if (Objects.equals(o, a2[i])) {
+                    // values matched
+                    matched[i] = true;
+                    // continue to the outer loop
+                    continue NEXT_OBJECT;
+                }
+            }
+            fail(msg + ": array 2 does not have object: " + o);
+        }
     }
 
     /**
